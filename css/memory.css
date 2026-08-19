@@ -458,6 +458,11 @@
   color: var(--c-accent);
 }
 
+.memory-source-badge.is-askbox {
+  background: color-mix(in srgb, #ff9500 14%, transparent);
+  color: #ff9500;
+}
+
 .memory-score {
   flex-shrink: 0;
   color: var(--c-hint);

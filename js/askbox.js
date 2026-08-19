@@ -187,6 +187,22 @@ function openAskBoxComposeSheet(page, chars) {
   })
 }
 
+// ===== 记忆互通：拿到与该角色的私聊 chat 记录（用于读写共享长期记忆） =====
+// 复用 wechat.js 里 ensurePrivateChatRecord() 的同一套 (ownerUid, charId) 定位逻辑，
+// 这样提问箱写入的记忆和微信私聊读取的记忆，落在同一个 chatId 下，天然互通。
+async function getAskBoxMemoryContext(charId) {
+  try {
+    if (typeof _wechatUid === 'undefined' || !_wechatUid) return null
+    if (typeof ensurePrivateChatRecord !== 'function') return null
+    var chat = await ensurePrivateChatRecord(charId)
+    if (!chat || !chat.id) return null
+    return { ownerUid: _wechatUid, chatId: chat.id }
+  } catch (e) {
+    console.warn('[askbox] 获取记忆上下文失败：', e)
+    return null
+  }
+}
+
 // ===== 提交问题并请求角色回复 =====
 async function submitAskBoxQuestion(charId, question, page, chars) {
   var char = chars.find(function(c) { return String(c.id) === String(charId) })
@@ -203,11 +219,28 @@ async function submitAskBoxQuestion(charId, question, page, chars) {
   await saveAskBoxItems(items)
   await renderAskBoxFeed(page, chars)
 
+  var memCtx = await getAskBoxMemoryContext(charId)
+
   try {
     var apiCfg = await loadApiConfig()
     var cfg = apiCfg.primary
     if (!cfg || !cfg.url || !cfg.key) throw new Error('请先在设置里填写 API 信息')
     var systemPrompt = buildAskBoxSystemPrompt(char || {})
+
+    // 互通第一步：回答之前，先把角色和这位（大号/小号）用户之间已经积累的长期记忆
+    // （不管是从微信私聊、线下见面、还是之前的提问箱产生的）注入进来，
+    // 这样角色公开回复时也能"记得"你们之间发生过的事。
+    if (memCtx && window.WanWanMemory && window.WanWanMemory.getMemoryContext) {
+      try {
+        var memoryText = await window.WanWanMemory.getMemoryContext(memCtx.chatId, charId, memCtx.ownerUid, [{ content: question }])
+        if (memoryText) {
+          systemPrompt += '\n\n# 你们之间的长期记忆（供参考，不要生硬复述，自然地体现在回复里即可）\n' + memoryText
+        }
+      } catch (e) {
+        console.warn('[askbox] 读取长期记忆失败，跳过注入：', e)
+      }
+    }
+
     var reply = await fetchAI(cfg, [{ role: 'user', content: question }], {
       system: systemPrompt,
       apiConsoleType: '提问箱回复'
@@ -223,6 +256,18 @@ async function submitAskBoxQuestion(charId, question, page, chars) {
   await saveAskBoxItems(latest)
   if (document.getElementById('askbox-feed-page')) {
     await renderAskBoxFeed(page, chars)
+  }
+
+  // 互通第二步：这一组问答成功之后，把它压缩总结进同一套长期记忆里，
+  // sourceType 标记为 'askbox'，之后角色在微信私聊时也能通过 getMemoryContext 读到。
+  // 全程 try/catch 包裹、不 await 阻塞 UI —— 记忆总结失败不影响提问箱本身正常使用。
+  if (item.answer && memCtx && window.WanWanMemory && window.WanWanMemory.summarizeAskBox) {
+    window.WanWanMemory.summarizeAskBox(
+      memCtx.chatId, charId, memCtx.ownerUid,
+      'askbox_' + item.id, question, item.answer, item.createdAt
+    ).catch(function(e) {
+      console.warn('[askbox] 记忆总结失败：', e)
+    })
   }
 }
 

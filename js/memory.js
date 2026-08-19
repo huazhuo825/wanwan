@@ -462,6 +462,46 @@ JSON 格式：
 ${lines}`
   }
 
+  function buildAskBoxSummaryPrompt(question, answer) {
+    return `你是一个匿名提问箱记忆整理器。请根据下面这一组"匿名提问 + 角色公开回复"，提取适合长期保存的记忆。
+
+要求：
+1. 使用第三人称叙述。
+2. 客观平实：只陈述有人匿名问了什么、角色是如何公开回应的，以及这透露出的角色偏好、态度或立场。
+3. 禁止使用强烈情绪词汇，不要进行文学化描写。
+4. 不要价值升华，不要写感悟，不要总结人生意义。
+5. 禁止加入问答记录中没有出现的信息。
+6. 标题应尽量简短；内容应控制在150字以内，适合未来角色在其他场合（例如私聊）回复时参考。
+7. 如果这条问答内容过于琐碎、没有值得长期记住的信息（例如纯粹的玩笑或无意义闲聊），可以返回空的 memories 数组。
+
+请返回合法 JSON，不要输出 Markdown，不要输出 JSON 以外的文字。
+
+JSON 格式：
+{
+  "memories": [
+    {
+      "title": "简短标题",
+      "content": "第三人称、客观平实的记忆内容，150字以内",
+      "keywords": ["关键词1", "关键词2"],
+      "valence": 0,
+      "arousal": 0.3,
+      "importance": 5
+    }
+  ]
+}
+
+字段说明：
+- title：尽量简短，用于快速识别这条记忆。
+- content：第三人称客观陈述，150字以内，禁止夸张、抒情、升华。
+- keywords：用于后续检索的关键词。
+- valence：情感效价，-1 到 1。负数表示负向，0 表示中性，正数表示正向。
+- arousal：唤醒度，0 到 1。越接近平静越低，越涉及冲突、紧张、强烈偏好越高。
+- importance：重要度，1 到 10。长期关系事实、稳定偏好、身份背景更高；临时闲聊更低。
+
+匿名提问：${String(question || '').replace(/\s+/g, ' ').slice(0, 800)}
+角色回复：${String(answer || '').replace(/\s+/g, ' ').slice(0, 800)}`
+  }
+
   function extractJson(text) {
     var s = String(text || '').trim()
     var match = s.match(/\{[\s\S]*\}/)
@@ -637,6 +677,70 @@ ${lines}`
     return { ok: true, skipped: false, memoryCount: rows.length, messageCount: source.length, embeddingFailed: embeddingFailed }
   }
 
+  async function summarizeAskBox(chatId, charId, ownerUid, sessionId, question, answer, createdAt) {
+    if (!window.callMemoryAI || !db.memories || !db.memoryRuns || !ownerUid || !chatId || !charId || !sessionId) {
+      throw new Error('记忆系统未就绪')
+    }
+    if (!String(question || '').trim() || !String(answer || '').trim()) {
+      throw new Error('没有可总结的提问箱内容')
+    }
+
+    var existingRun = await db.memoryRuns.where('chatId').equals(chatId).filter(function(run) {
+      return run.ownerUid === ownerUid && run.charId === charId && run.sourceSessionId === sessionId && run.mode === 'askbox'
+    }).first()
+    if (existingRun) {
+      return { ok: true, skipped: true, alreadySummarized: true, memoryCount: existingRun.memoryCount || 0, messageCount: 1 }
+    }
+    var existingMemories = await db.memories.where('chatId').equals(chatId).filter(function(memory) {
+      return memory.ownerUid === ownerUid && memory.charId === charId && memory.sourceSessionId === sessionId
+    }).toArray()
+    if (existingMemories.length) {
+      return { ok: true, skipped: true, alreadySummarized: true, memoryCount: existingMemories.length, messageCount: 1 }
+    }
+
+    var settings = await getSettings(chatId)
+    var sourceAt = isValidTimestamp(createdAt) ? Number(createdAt) : Date.now()
+    var raw = await window.callMemoryAI([{ role: 'user', content: buildAskBoxSummaryPrompt(question, answer) }], { responseFormat: 'json_object', temperature: await window.getAITemperaturePreset('summaryMode') })
+    var parsed = extractJson(raw)
+    var memories = Array.isArray(parsed.memories) ? parsed.memories : []
+    var rows = []
+    var embeddingFailed = false
+    for (var i = 0; i < memories.length; i++) {
+      var row = normalizeMemory(memories[i], {
+        ownerUid: ownerUid, charId: charId, chatId: chatId,
+        fromMsgId: 0, toMsgId: 0,
+        sourceAt: sourceAt
+      })
+      if (!row) continue
+      row.sourceSessionId = sessionId
+      row.sourceType = 'askbox'
+      if (settings.embeddingEnabled) {
+        try { row.embedding = await createEmbedding(row.title + '\n' + row.content) }
+        catch (e) {
+          embeddingFailed = true
+          console.warn('[memory] 提问箱记忆生成向量失败，降级保存：', e)
+        }
+      }
+      rows.push(row)
+    }
+    if (rows.length) await db.memories.bulkAdd(rows)
+    await db.memoryRuns.add({
+      ownerUid: ownerUid,
+      charId: charId,
+      chatId: chatId,
+      fromMsgId: 0,
+      toMsgId: 0,
+      sourceSessionId: sessionId,
+      sourceType: 'askbox',
+      sourceAt: sourceAt,
+      createdAt: Date.now(),
+      memoryCount: rows.length,
+      mode: 'askbox'
+    })
+    await db.config.put({ key: 'memoryLastSummaryAt', value: Date.now() })
+    return { ok: true, skipped: false, memoryCount: rows.length, messageCount: 1, embeddingFailed: embeddingFailed }
+  }
+
   function getMemoryInjectionSourceAt(memory) {
     var sourceAt = Number(memory && memory.sourceAt)
     return isValidTimestamp(sourceAt) ? sourceAt : null
@@ -702,11 +806,11 @@ ${lines}`
     })
     return orderedForInjection.map(function(x, i) {
       var m = x.memory
-      var isMeet = m.sourceType ? m.sourceType === 'offlineMeet' : !!m.sourceSessionId
       var memoryTime = getMemoryInjectionSourceAt(m)
-      var sourceTime = isMeet
-        ? `【线下见面｜发生时间：${memoryTime ? formatMemoryDateTime(memoryTime) : '未知'}】`
-        : `【微信聊天｜发生时间：${memoryTime ? formatMemoryDateTime(memoryTime) : '未知'}】`
+      var sourceLabelText = m.sourceType === 'offlineMeet' ? '线下见面'
+        : m.sourceType === 'askbox' ? '匿名提问箱'
+        : '微信聊天'
+      var sourceTime = `【${sourceLabelText}｜发生时间：${memoryTime ? formatMemoryDateTime(memoryTime) : '未知'}】`
       return `${i + 1}. ${sourceTime}${m.title}：${m.content}`
     }).join('\n')
   }
@@ -1093,9 +1197,10 @@ ${lines}`
     var owner = chars[m.ownerUid]
     var role = chars[m.charId]
     var decay = getDecayScore(m, DEFAULT_SETTINGS).toFixed(2)
-    var isMeet = m.sourceType ? m.sourceType === 'offlineMeet' : !!m.sourceSessionId
-    var sourceLabel = isMeet ? '见面' : '微信'
-    var sourceClass = sourceLabel === '见面' ? 'is-meet' : 'is-wechat'
+    var sourceLabel = m.sourceType === 'offlineMeet' ? '见面'
+      : m.sourceType === 'askbox' ? '提问箱'
+      : '微信'
+    var sourceClass = sourceLabel === '见面' ? 'is-meet' : sourceLabel === '提问箱' ? 'is-askbox' : 'is-wechat'
     return `
       <div class="memory-card" data-id="${m.id}">
         <div class="memory-card-top">
@@ -1215,6 +1320,7 @@ ${lines}`
     summarizeIfNeeded: summarizeIfNeeded,
     summarizeNow: summarizeNow,
     summarizeMeeting: summarizeMeeting,
+    summarizeAskBox: summarizeAskBox,
     getMemoryContext: getMemoryContext,
     listMemories: listMemories,
     testEmbedding: testEmbedding,

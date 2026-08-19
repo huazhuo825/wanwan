@@ -1,0 +1,158 @@
+/* askbox.css — 匿名提问箱模块样式
+   遵循 base.css 的设计变量（--c-bg / --c-surface / --c-text 等），
+   深色模式（:root.theme-dark）无需额外适配，变量会自动切换。 */
+
+.askbox-main {
+  display: flex; flex-direction: column;
+  background: var(--c-bg);
+  min-height: 0;
+}
+
+/* ===== 顶栏（与 imessage-header 结构一致） ===== */
+.askbox-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px;
+  padding-top: calc(12px + env(safe-area-inset-top));
+  background: var(--c-bg);
+  border-bottom: 1px solid var(--c-border);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 20;
+}
+.askbox-back, .askbox-compose-btn {
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--c-text); font-size: 20px;
+  border-radius: 50%;
+  background: transparent; border: none;
+  flex-shrink: 0;
+}
+.askbox-back:active, .askbox-compose-btn:active { opacity: 0.5; }
+.askbox-title {
+  font-size: 17px; font-weight: 600;
+  color: var(--c-text);
+}
+
+/* ===== 空状态 ===== */
+.askbox-empty {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 10px; padding: 40px 30px; text-align: center;
+}
+.askbox-empty i { font-size: 34px; color: var(--c-hint); }
+.askbox-empty p { font-size: 14px; color: var(--c-sub); line-height: 1.7; margin: 0; }
+.askbox-empty button {
+  margin-top: 6px;
+  padding: 9px 20px; border: none; border-radius: var(--r-pill);
+  background: var(--c-accent-dark); color: #fff;
+  font-size: 14px; font-family: var(--font);
+}
+
+/* ===== 信息流 ===== */
+.askbox-feed {
+  flex: 1; overflow-y: auto;
+  padding: 12px 14px 24px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.askbox-card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: 14px;
+  box-shadow: var(--shadow-sm);
+}
+.askbox-card-to {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 8px;
+}
+.askbox-card-to img {
+  width: 22px; height: 22px; border-radius: 50%;
+  object-fit: cover; background: var(--c-surface-2);
+}
+.askbox-card-to span {
+  font-size: 12.5px; color: var(--c-sub);
+}
+.askbox-card-to b { color: var(--c-text); font-weight: 600; }
+.askbox-card-q {
+  font-size: 14.5px; color: var(--c-text);
+  line-height: 1.6; margin-bottom: 10px;
+  padding: 9px 12px;
+  background: var(--c-surface-2);
+  border-radius: var(--r-sm);
+}
+.askbox-card-a {
+  font-size: 15px; color: var(--c-text);
+  line-height: 1.7; white-space: pre-wrap; word-break: break-word;
+}
+.askbox-card-a.pending { color: var(--c-hint); font-style: normal; }
+.askbox-card-time {
+  margin-top: 10px; font-size: 11px; color: var(--c-hint);
+}
+.askbox-typing { display: inline-flex; gap: 3px; }
+.askbox-typing span {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--c-hint);
+  animation: askboxBounce 1.1s infinite ease-in-out;
+}
+.askbox-typing span:nth-child(2) { animation-delay: .15s; }
+.askbox-typing span:nth-child(3) { animation-delay: .3s; }
+@keyframes askboxBounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: .5; }
+  30% { transform: translateY(-3px); opacity: 1; }
+}
+
+/* ===== 撰写弹层 ===== */
+.askbox-compose-overlay {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.35);
+  display: flex; align-items: flex-end;
+  z-index: 60;
+}
+.askbox-compose-sheet {
+  width: 100%;
+  background: var(--c-bg);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  box-shadow: var(--shadow-lg);
+}
+.askbox-compose-title {
+  font-size: 15px; font-weight: 600; color: var(--c-text);
+  margin-bottom: 12px; text-align: center;
+}
+.askbox-char-scroller {
+  display: flex; gap: 10px; overflow-x: auto;
+  padding-bottom: 12px; margin-bottom: 12px;
+  border-bottom: 1px solid var(--c-border);
+}
+.askbox-char-chip {
+  flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  width: 56px; cursor: pointer;
+}
+.askbox-char-chip img {
+  width: 44px; height: 44px; border-radius: 50%;
+  object-fit: cover; background: var(--c-surface-2);
+  border: 2px solid transparent;
+}
+.askbox-char-chip.active img { border-color: var(--c-accent-dark); }
+.askbox-char-chip span {
+  font-size: 11px; color: var(--c-sub);
+  max-width: 56px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.askbox-char-chip.active span { color: var(--c-text); font-weight: 600; }
+.askbox-compose-textarea {
+  width: 100%; min-height: 80px; resize: none;
+  border: 1px solid var(--c-border-m); border-radius: var(--r-md);
+  padding: 10px 12px; font-size: 14.5px; font-family: var(--font);
+  color: var(--c-text); background: var(--c-surface);
+  outline: none; line-height: 1.5;
+}
+.askbox-compose-actions {
+  display: flex; gap: 10px; margin-top: 12px;
+}
+.askbox-compose-actions button {
+  flex: 1; padding: 11px; border: none; border-radius: var(--r-pill);
+  font-size: 14.5px; font-family: var(--font);
+}
+.askbox-cancel-btn { background: var(--c-surface-2); color: var(--c-text); }
+.askbox-send-btn { background: var(--c-accent-dark); color: #fff; }
+.askbox-send-btn:disabled { opacity: 0.4; }

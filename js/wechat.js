@@ -7590,9 +7590,11 @@ async function generateAIReply(chatId, charId, options = {}) {
   const imageGenEnabled = !!imageGenSettings.enabled && await isImageGenReady()
   const thoughtTemplate = await getChatThoughtTemplateConfig(chatId)
   const idleContext = await getPrivateReplyIdleContext(chatId, options)
-  const memoryCtx = window.WanWanMemory?.getMemoryContext
+    const memoryCtx = (window.WanWanMemory?.getMemoryContext
     ? await window.WanWanMemory.getMemoryContext(chatId, charId, _wechatUid, context.loreMessages)
-    : ''
+    : '') + (window.WanWanMemory?.getAskBoxRecentPulse
+    ? await window.WanWanMemory.getAskBoxRecentPulse(charId)
+    : '')
   const mcp = await runWechatMcpPrefetch(options.allowMcp === true, {
     scope: 'chat',
     conversationId: chatId

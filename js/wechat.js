@@ -19626,9 +19626,11 @@ async function buildVoiceCallSystemPrompt(chatId, charId) {
   const historyLimit = await helpers.getChatHistoryLimit?.(chatId) || 100
   const context = await helpers.buildWechatReplyContext?.(chatId, charId, historyLimit) || { textHistory: [], loreMessages: [] }
   const loreCtx = await helpers.getChatLorebookContext?.(chatId, charId, context.loreMessages) || ''
-  const memoryCtx = window.WanWanMemory?.getMemoryContext
+    const memoryCtx = (window.WanWanMemory?.getMemoryContext
     ? await window.WanWanMemory.getMemoryContext(chatId, charId, window._wechatUid, context.loreMessages)
-    : ''
+    : '') + (window.WanWanMemory?.getAskBoxRecentPulse
+    ? await window.WanWanMemory.getAskBoxRecentPulse(charId)
+    : '')
   const bilingualSettings = await helpers.getChatBilingualSettings?.(chatId) || {}
   const tzStored = await db.config.get(`chatTimezone_${chatId}`)
   const tzConfig = tzStored?.value || {}
@@ -19666,9 +19668,11 @@ async function buildVideoCallSystemPrompt(chatId, charId) {
   const historyLimit = await helpers.getChatHistoryLimit?.(chatId) || 100
   const context = await helpers.buildWechatReplyContext?.(chatId, charId, historyLimit) || { textHistory: [], loreMessages: [] }
   const loreCtx = await helpers.getChatLorebookContext?.(chatId, charId, context.loreMessages) || ''
-  const memoryCtx = window.WanWanMemory?.getMemoryContext
+    const memoryCtx = (window.WanWanMemory?.getMemoryContext
     ? await window.WanWanMemory.getMemoryContext(chatId, charId, window._wechatUid, context.loreMessages)
-    : ''
+    : '') + (window.WanWanMemory?.getAskBoxRecentPulse
+    ? await window.WanWanMemory.getAskBoxRecentPulse(charId)
+    : '')
   const bilingualSettings = await helpers.getChatBilingualSettings?.(chatId) || {}
   const tzStored = await db.config.get(`chatTimezone_${chatId}`)
   const tzConfig = tzStored?.value || {}
